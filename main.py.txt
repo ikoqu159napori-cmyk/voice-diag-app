@@ -1,0 +1,61 @@
+import streamlit as st
+from streamlit_mic_recorder import mic_recorder
+import librosa
+import numpy as np
+import io
+import urllib.parse
+
+# --- 診断ロジック（前回のコードを移植） ---
+def analyze_voice(audio_bytes):
+    # バイナリデータを読み込み
+    audio_file = io.BytesIO(audio_bytes)
+    y, sr = librosa.load(audio_file)
+
+    # 数値抽出
+    f0, _, _ = librosa.pyin(y, fmin=librosa.note_to_hz('C2'), fmax=librosa.note_to_hz('C6'))
+    avg_pitch = np.nanmean(f0)
+    brightness = np.mean(librosa.feature.spectral_centroid(y=y, sr=sr)[0])
+    tempo_array, _ = librosa.beat.beat_track(y=y, sr=sr)
+    tempo = float(np.mean(tempo_array))
+    energy = np.mean(librosa.feature.rms(y=y)[0])
+
+    # 判定
+    season = "夏" if avg_pitch > 180 and brightness > 2500 else ("春" if avg_pitch > 180 else ("冬" if brightness > 1800 else "秋"))
+    activity = energy * 100 + (tempo / 100)
+    time_of_day = "昼" if activity > 6.0 else ("晩" if activity < 4.5 else "朝")
+    
+    return f"{season} × {time_of_day}", avg_pitch
+
+# --- 画面（UI）の設定 ---
+st.set_page_config(page_title="AI声質診断", page_icon="🎙️")
+st.title("🎙️ AI声質12タイプ診断")
+st.write("スマホのマイクで録音して、あなたの声のタイプを診断しましょう！")
+
+# 録音ボタン（スマホでも動きます）
+audio = mic_recorder(start_prompt="🔴 録音スタート", stop_prompt="⏹️ 停止して診断", key='recorder')
+
+if audio:
+    st.audio(audio['bytes']) # 録音した声を確認できる
+    
+    with st.spinner('AIが解析中...'):
+        result, pitch = analyze_voice(audio['bytes'])
+        
+        st.success(f"診断完了！あなたの声質は…")
+        st.header(f"✨ 【 {result} 】 ✨")
+        st.write(f"（解析データ - 高さ: {pitch:.2f}Hz）")
+
+        # --- X（Twitter）シェアボタン ---
+        share_text = f"私の声質は【{result}】タイプでした！🎙️✨\nAIが声の成分を分析して診断します。\n#声質12タイプ診断 #AI診断"
+        # 自分のサイトURLが決まったらここに書き換える
+        share_url = "https://your-app-name.streamlit.app" 
+        
+        encoded_text = urllib.parse.quote(share_text)
+        x_share_link = f"https://twitter.com/intent/tweet?text={encoded_text}&url={share_url}"
+        
+        st.markdown(f'''
+            <a href="{x_share_link}" target="_blank">
+                <button style="background-color: #000; color: #fff; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold;">
+                    𝕏 (Twitter) で結果をシェアする
+                </button>
+            </a>
+            ''', unsafe_allow_html=True)
